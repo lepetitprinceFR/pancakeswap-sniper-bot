@@ -24,7 +24,9 @@ If any of these settings is missing - bot won't work.
 
 ## Usage
 
-Run bot with `node bot.js` command ⚙️
+Run bot with `node bot.js` command like in example below ⚙️
+
+![](gif/bot-usage.gif)
 
 ## How it works
 
