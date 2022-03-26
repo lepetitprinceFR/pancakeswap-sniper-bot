@@ -1,6 +1,6 @@
 {
-  "name": "Pancakeswap-Uniswap-Snipe-Bot",
-  "version": "1.0.0",
+  "name": "Pancakeswap-Mempool-Snipe-Bot",
+  "version": "1.0.2",
   "description": "",
   "main": "bot.js",
   "scripts": {

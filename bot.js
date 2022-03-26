@@ -1,328 +1,309 @@
+//region:imports
 const Path = require('path');
 global.appRoot = Path.resolve('./');
 const Dotenv = require('dotenv').config();
-const ethers = require('ethers');
-const sign = require('eth-sign-utils');
-const Web3 = require('web3');
-const Tx = require('ethereumjs-tx').Transaction;
+const Big = require('big.js');
+const Chalk = require('chalk');
 const Common = require('ethereumjs-common').default;
 const Commonn = require('@ethereumjs/common').default;
-const inquirer = require('inquirer');
-const chalk = require('chalk');
+const Ethers = require('ethers');
+const Sign = require('eth-sign-utils');
+const Timer = require('./timer.js');
+const Tx = require('ethereumjs-tx').Transaction;
+const Web3 = require('web3');
+//endregion:imports
 
-const data = {
-    swap: process.env.SWAP,                           // pancake or uni
+//region:connection
+let ethers;
+let web3;
 
-    snipeToken: process.env.SNIPE_TOKEN,              // Token which you want to snipe
+const WEB_SOCKET_NODE = process.env.WEB_SOCKET_NODE; // REPLACE WITH YOUR PRIVATE NODE
 
-    snipeAmount: process.env.SNIPE_BNB_AMOUNT,        // Amount of BNB/ETHER you want to spend buying token
+const WEB_SOCKET_OPTIONS = {
+    timeout: 30000, // ms
 
-    recipient: process.env.ACCOUNT_ADDRESS,           // Your account address
+    clientConfig: {
+        // Useful if requests are large
+        maxReceivedFrameSize: 100000000,   // bytes - default: 1MiB
+        maxReceivedMessageSize: 100000000, // bytes - default: 8MiB
 
-    privateKey: process.env.PRIVATE_KEY,              // Your account private key
+        // Useful to keep a connection alive
+        keepalive: true,
+        keepaliveInterval: -1 // ms
+    },
 
-    slippage: process.env.SLIPPAGE                    // Allowed slippage (12 default)
-}
-
-const PAN_ROUTER_ADDRESS =  "0x10ED43C718714eb63d5aA57B78B54704E256024E";  // https://bscscan.com/address/0x10ED43C718714eb63d5aA57B78B54704E256024E
-const PAN_FACTORY_ADDRESS = "0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73";  // https://bscscan.com/address/0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73
-const PAN_BNB_ADDRESS =     "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";  // https://bscscan.com/token/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c
-
-const UNI_ROUTER_ADDRESS =  "0xE592427A0AEce92De3Edee1F18E0157C05861564";  // https://etherscan.io/address/0xE592427A0AEce92De3Edee1F18E0157C05861564
-const UNI_FACTORY_ADDRESS = "0x1F98431c8aD98523631AE4a59f267346ea31F984";  // https://etherscan.io/address/0x1f98431c8ad98523631ae4a59f267346ea31f984
-const UNI_ETH_ADDRESS =     "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";  // https://etherscan.io/token/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
-
-const PAN_COMMON = Common.forCustomChain(         // We need to define Binance Smart Chain settings here
-    'mainnet',                                    // in order to work with PancakeSwap
+    // Enable auto reconnection
+    reconnect: {
+        auto: true,
+        delay: 1000, // ms
+        maxAttempts: 10,
+        onTimeout: false
+    }
+};
+const WEB_SOCKET_BSC_FORK = Common.forCustomChain(
+    'mainnet',
     {
         name: 'Binance Smart Chain Mainnet',
         networkId: 56,
         chainId: 56,
-        url: 'https://bsc-dataseed.binance.org/'
+        url: WEB_SOCKET_NODE
     },
     'istanbul',
 );
+//endregion:connection
 
-const UNI_COMMON = new Commonn({chain: 'mainnet'}); // For Uniswap it is much simpler, just specify mainnet
+//region:constants
+const PANCAKESWAP_ROUTER_ADDRESS = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
+const PANCAKESWAP_FACTORY_ADDRESS = "0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73";
 
-const provider = getProvider();
-const web3 = getWeb3();
+const BNB_TOKEN_ADDRESS = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
+const BUSD_TOKEN_ADDRESS = "0xe9e7cea3dedca5984780bafc599bd69add087d56";
 
-let wallet = getWallet();
-let account = getAccount();
+const pancakeswapRouterAbi = [{"inputs":[{"internalType":"address","name":"_factory","type":"address"},{"internalType":"address","name":"_WETH","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"WETH","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"tokenA","type":"address"},{"internalType":"address","name":"tokenB","type":"address"},{"internalType":"uint256","name":"amountADesired","type":"uint256"},{"internalType":"uint256","name":"amountBDesired","type":"uint256"},{"internalType":"uint256","name":"amountAMin","type":"uint256"},{"internalType":"uint256","name":"amountBMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"addLiquidity","outputs":[{"internalType":"uint256","name":"amountA","type":"uint256"},{"internalType":"uint256","name":"amountB","type":"uint256"},{"internalType":"uint256","name":"liquidity","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"amountTokenDesired","type":"uint256"},{"internalType":"uint256","name":"amountTokenMin","type":"uint256"},{"internalType":"uint256","name":"amountETHMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"addLiquidityETH","outputs":[{"internalType":"uint256","name":"amountToken","type":"uint256"},{"internalType":"uint256","name":"amountETH","type":"uint256"},{"internalType":"uint256","name":"liquidity","type":"uint256"}],"stateMutability":"payable","type":"function"},{"inputs":[],"name":"factory","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"},{"internalType":"uint256","name":"reserveIn","type":"uint256"},{"internalType":"uint256","name":"reserveOut","type":"uint256"}],"name":"getAmountIn","outputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"}],"stateMutability":"pure","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"reserveIn","type":"uint256"},{"internalType":"uint256","name":"reserveOut","type":"uint256"}],"name":"getAmountOut","outputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"}],"stateMutability":"pure","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"}],"name":"getAmountsIn","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"}],"name":"getAmountsOut","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountA","type":"uint256"},{"internalType":"uint256","name":"reserveA","type":"uint256"},{"internalType":"uint256","name":"reserveB","type":"uint256"}],"name":"quote","outputs":[{"internalType":"uint256","name":"amountB","type":"uint256"}],"stateMutability":"pure","type":"function"},{"inputs":[{"internalType":"address","name":"tokenA","type":"address"},{"internalType":"address","name":"tokenB","type":"address"},{"internalType":"uint256","name":"liquidity","type":"uint256"},{"internalType":"uint256","name":"amountAMin","type":"uint256"},{"internalType":"uint256","name":"amountBMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"removeLiquidity","outputs":[{"internalType":"uint256","name":"amountA","type":"uint256"},{"internalType":"uint256","name":"amountB","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"liquidity","type":"uint256"},{"internalType":"uint256","name":"amountTokenMin","type":"uint256"},{"internalType":"uint256","name":"amountETHMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"removeLiquidityETH","outputs":[{"internalType":"uint256","name":"amountToken","type":"uint256"},{"internalType":"uint256","name":"amountETH","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"liquidity","type":"uint256"},{"internalType":"uint256","name":"amountTokenMin","type":"uint256"},{"internalType":"uint256","name":"amountETHMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"removeLiquidityETHSupportingFeeOnTransferTokens","outputs":[{"internalType":"uint256","name":"amountETH","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"liquidity","type":"uint256"},{"internalType":"uint256","name":"amountTokenMin","type":"uint256"},{"internalType":"uint256","name":"amountETHMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"},{"internalType":"bool","name":"approveMax","type":"bool"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"}],"name":"removeLiquidityETHWithPermit","outputs":[{"internalType":"uint256","name":"amountToken","type":"uint256"},{"internalType":"uint256","name":"amountETH","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"token","type":"address"},{"internalType":"uint256","name":"liquidity","type":"uint256"},{"internalType":"uint256","name":"amountTokenMin","type":"uint256"},{"internalType":"uint256","name":"amountETHMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"},{"internalType":"bool","name":"approveMax","type":"bool"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"}],"name":"removeLiquidityETHWithPermitSupportingFeeOnTransferTokens","outputs":[{"internalType":"uint256","name":"amountETH","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"tokenA","type":"address"},{"internalType":"address","name":"tokenB","type":"address"},{"internalType":"uint256","name":"liquidity","type":"uint256"},{"internalType":"uint256","name":"amountAMin","type":"uint256"},{"internalType":"uint256","name":"amountBMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"},{"internalType":"bool","name":"approveMax","type":"bool"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"}],"name":"removeLiquidityWithPermit","outputs":[{"internalType":"uint256","name":"amountA","type":"uint256"},{"internalType":"uint256","name":"amountB","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapETHForExactTokens","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"payable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactETHForTokens","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"payable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactETHForTokensSupportingFeeOnTransferTokens","outputs":[],"stateMutability":"payable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactTokensForETH","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactTokensForETHSupportingFeeOnTransferTokens","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactTokensForTokens","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"uint256","name":"amountOutMin","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapExactTokensForTokensSupportingFeeOnTransferTokens","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"},{"internalType":"uint256","name":"amountInMax","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapTokensForExactETH","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"amountOut","type":"uint256"},{"internalType":"uint256","name":"amountInMax","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"name":"swapTokensForExactTokens","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"nonpayable","type":"function"},{"stateMutability":"payable","type":"receive"}];
+const pancakeswapFactoryAbi = [{"inputs":[{"internalType":"address","name":"_feeToSetter","type":"address"}],"payable":false,"stateMutability":"nonpayable","type":"constructor"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"token0","type":"address"},{"indexed":true,"internalType":"address","name":"token1","type":"address"},{"indexed":false,"internalType":"address","name":"pair","type":"address"},{"indexed":false,"internalType":"uint256","name":"","type":"uint256"}],"name":"PairCreated","type":"event"},{"constant":true,"inputs":[],"name":"INIT_CODE_PAIR_HASH","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"allPairs","outputs":[{"internalType":"address","name":"","type":"address"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"allPairsLength","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"internalType":"address","name":"tokenA","type":"address"},{"internalType":"address","name":"tokenB","type":"address"}],"name":"createPair","outputs":[{"internalType":"address","name":"pair","type":"address"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"feeTo","outputs":[{"internalType":"address","name":"","type":"address"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"feeToSetter","outputs":[{"internalType":"address","name":"","type":"address"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"address","name":"","type":"address"}],"name":"getPair","outputs":[{"internalType":"address","name":"","type":"address"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"internalType":"address","name":"_feeTo","type":"address"}],"name":"setFeeTo","outputs":[],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":false,"inputs":[{"internalType":"address","name":"_feeToSetter","type":"address"}],"name":"setFeeToSetter","outputs":[],"payable":false,"stateMutability":"nonpayable","type":"function"}];
+const tokenAbi = [{"inputs":[{"internalType":"string","name":"_name","type":"string"},{"internalType":"string","name":"_symbol","type":"string"},{"internalType":"uint256","name":"_decimals","type":"uint256"},{"internalType":"uint256","name":"_supply","type":"uint256"},{"internalType":"uint256","name":"_txFee","type":"uint256"},{"internalType":"uint256","name":"_burnFee","type":"uint256"},{"internalType":"uint256","name":"_charityFee","type":"uint256"},{"internalType":"address","name":"_FeeAddress","type":"address"},{"internalType":"address","name":"tokenOwner","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":true,"internalType":"address","name":"spender","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"previousOwner","type":"address"},{"indexed":true,"internalType":"address","name":"newOwner","type":"address"}],"name":"OwnershipTransferred","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Transfer","type":"event"},{"inputs":[],"name":"FeeAddress","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"_BURN_FEE","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"_CHARITY_FEE","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"_TAX_FEE","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"_owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"_value","type":"uint256"}],"name":"burn","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"decimals","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"subtractedValue","type":"uint256"}],"name":"decreaseAllowance","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"tAmount","type":"uint256"}],"name":"deliver","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"excludeAccount","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"includeAccount","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"addedValue","type":"uint256"}],"name":"increaseAllowance","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"isCharity","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"isExcluded","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"mint","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tAmount","type":"uint256"},{"internalType":"bool","name":"deductTransferFee","type":"bool"}],"name":"reflectionFromToken","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"renounceOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"setAsCharityAccount","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"rAmount","type":"uint256"}],"name":"tokenFromReflection","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalBurn","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalCharity","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalFees","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"recipient","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"sender","type":"address"},{"internalType":"address","name":"recipient","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"newOwner","type":"address"}],"name":"transferOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"_txFee","type":"uint256"},{"internalType":"uint256","name":"_burnFee","type":"uint256"},{"internalType":"uint256","name":"_charityFee","type":"uint256"}],"name":"updateFee","outputs":[],"stateMutability":"nonpayable","type":"function"}];
+const extraAbi = [{"inputs":[],"name":"_maxTxAmount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}];
+//endregion:constants
 
-let initialLiquidityDetected = false;
-let jmlBnb = 0;
-let tokenBought = false;
-let boughtAmount = 0;
+//region:properties
+const address = process.env.ACCOUNT_ADDRESS;
+const privateKey = process.env.ACCOUNT_PRIVATE_KEY;
 
-function validateInput() {
-    console.log(chalk.yellow('Validating input from .env config file...'));
-    if (data.swap === undefined || data.swap === '') {
-        console.log(chalk.red("Please define SWAP variable in .env (pancake or uni)"));
-        process.exit(-1);
-    }
-    if (data.snipeToken === undefined || data.snipeToken === '') {
-        console.log(chalk.red("Please define SNIPE_TOKEN variable in .env"));
-        process.exit(-1);
-    }
-    if (data.snipeAmount === undefined || data.snipeAmount === '') {
-        console.log(chalk.red("Please define SNIPE_BNB_AMOUNT variable in .env"));
-        process.exit(-1);
-    }
-    if (data.recipient === undefined || data.recipient === '') {
-        console.log(chalk.red("Please define YOUR_ACCOUNT_ADDRESS variable in .env"));
-        process.exit(-1);
-    }
-    if (data.privateKey === undefined || data.privateKey === '') {
-        console.log(chalk.red("Please define YOUR_ACCOUNT_PRIVATE_KEY variable in .env"));
-        process.exit(-1);
-    }
-    if (data.slippage === undefined || data.slippage === '') {
-        console.log(chalk.red("Please define SLIPPAGE variable in .env"));
-        process.exit(-1);
-    }
-    console.log(chalk.green('All input was successfully validated!'));
-}
+const tokenAddress = process.env.SNIPE_TOKEN;
+let tokenSymbol;
+let tokenDecimals;
 
-function startupInfo() {
-    console.log(chalk.green('=================================================='));
-    console.log(chalk.green('PancakeSwap & Uniswap sniping bot v1.0.1'));
-    console.log(chalk.green('=================================================='));
-    console.log(chalk.green(`Swap exchange - ${data.swap}`));
-    console.log(chalk.green(`Target token (to snipe) - ${data.snipeToken}`));
-    console.log(chalk.green(`Target amount (to buy) - ${data.snipeAmount}`));
-    console.log(chalk.green(`Allowed slippage - ${data.slippage}`));
-    console.log(chalk.green('Proceeding to snipe...'));
-    console.log(chalk.green('=================================================='));
-}
+const snipeBnbAmount = process.env.SNIPE_BNB_AMOUNT;
 
-function getRouterAddress() {
-    if (data.swap === 'pancake') return PAN_ROUTER_ADDRESS;
-    else return UNI_ROUTER_ADDRESS;
-}
+const buyGasPrice = process.env.BUY_GAS_PRICE_GWEI * 1e9;
+const buyGasLimit = process.env.BUY_GAS_LIMIT;
+const buyTimeout = process.env.BUY_TIMEOUT_SEC;
+//endregion:properties
 
-function getFactoryAddress() {
-    if (data.swap === 'pancake') return PAN_FACTORY_ADDRESS;
-    else return UNI_FACTORY_ADDRESS;
-}
+let bnbBalanceBeforeBuyAndSell;
 
-function getTokenAddress() {
-    if (data.swap === 'pancake') return PAN_BNB_ADDRESS;
-    else return UNI_ETH_ADDRESS;
-}
+let initLiquidityDetected = false;
 
-function getWallet() {
-    return new ethers.Wallet(data.privateKey);
-}
-
-function getAccount() {
-    return wallet.connect(provider);
-}
-
-// TODO: move abi into json file
-function factory() {
-    return new ethers.Contract(
-        getFactoryAddress(),
-        [
-            'event PairCreated(address indexed token0, address indexed token1, address pair, uint)',
-            'function getPair(address tokenA, address tokenB) external view returns (address pair)'
-        ],
-        account
-    );
-}
-
-// TODO: move abi into json file
-function router() {
-    return new ethers.Contract(
-        getRouterAddress(),
-        [
-            'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)',
-            'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
-            'function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)'
-        ],
-        account
-    );
-}
-
-// TODO: move abi into json file
-function erc() {
-    return new ethers.Contract(
-        getTokenAddress(),
-        [{
-            "constant": true,
-            "inputs": [{"name": "_owner", "type": "address"}],
-            "name": "balanceOf",
-            "outputs": [{"name": "balance", "type": "uint256"}],
-            "payable": false,
-            "type": "function"
-        }],
-        account
-    );
-}
-
-// TODO: add list of public nodes and try to connect to the first available node
-function getNodeUrl() {
-    if (data.swap === 'pancake') return 'https://bsc-dataseed1.defibit.io/'; //https://bsc-dataseed1.defibit.io/ https://bsc-dataseed.binance.org/
-    else return 'https://cloudflare-eth.com/'; // For uniswap, you can use your private Infura node, get and API key here - https://infura.io/
-}
-
-function getProvider() {
-    return new ethers.providers.JsonRpcProvider(getNodeUrl());
-}
-
-function getWeb3() {
-    let web3provider = new Web3.providers.HttpProvider(getNodeUrl());
-    return new Web3(web3provider);
-}
-
-function getNetworkCommon() {
-    if (data.swap === 'pancake') return PAN_COMMON;
-    else return UNI_COMMON;
-}
-
-const run = async () => {
-    await checkLiq();
-}
-
-let checkLiq = async () => {
-    const pairAddressx = await factory().getPair(getTokenAddress(), data.snipeToken);
-    console.log(chalk.blue(`pairAddress: ${pairAddressx}`));
-    if (pairAddressx !== null && pairAddressx !== undefined) {
-        if (pairAddressx.toString().indexOf('0x0000000000000') > -1) {
-            console.log(chalk.cyan(`Pair address ${pairAddressx} not detected. Auto restarting bot...`));
-            return await run();
-        }
-    }
-    const pairBNBvalue = await erc().balanceOf(pairAddressx);
-    jmlBnb = ethers.utils.formatEther(pairBNBvalue);
-    console.log(`Detected liquidity : ${jmlBnb}`);
-    console.log('Going to buy token...');
-    setTimeout(() => buyAction(), 3000);
-}
-
-let buyAction = async () => {
-    if (initialLiquidityDetected === true) {
-        console.log('Can not buy token, liquidity was added already; aborting operation...');
-        return null;
-    }
-
-    console.log('Ready to buy token');
-    try {
-        initialLiquidityDetected = true;
-
-        let amountOutMin = 0;
-        //We buy x amount of the new token for our wbnb
-        const amountIn = ethers.utils.parseUnits(`${data.snipeAmount}`, 'ether');
-        if (parseInt(data.slippage) !== 0) {
-            const amounts = await router().getAmountsOut(amountIn, [getTokenAddress(), data.snipeToken]);
-            //Our execution price will be a bit different, we need some flexibility (slippage)
-            amountOutMin = amounts[1].sub(amounts[1].div(`${data.slippage}`));
-        }
-
-        console.log(
-            chalk.green.inverse(`Starting to buy \n`)
-            +
-            `Buying Token
-        =================
-        tokenIn: ${(amountIn * 1e-18).toString()} ${getTokenAddress()} (BNB)
-        tokenOut: ${(amountOutMin / 1e-18).toString()} ${getTokenAddress()}
-      `);
-
-        console.log(chalk.yellow('Processing Transaction.....'));
-        console.log(chalk.yellow(`Buying amount: ${(amountIn * 1e-18)} ${getTokenAddress()} (BNB)`));
-        console.log(chalk.yellow(`Minimum token amount: ${amountOutMin / 1e-18}`));
-        console.log(chalk.yellow(`Buying token: ${getTokenAddress()}`));
-        console.log(chalk.yellow(`Target token: ${data.snipeToken}`));
-        console.log(chalk.yellow(`Account: ${data.recipient}`));
-        console.log(chalk.yellow(`Gas limit: ${data.gasLimit}`));
-        console.log(chalk.yellow(`Gas price: ${data.gasPrice}`));
-
-        // Prepare transaction data
-        let txData = router.methods.swapExactETHForTokens(
-            web3.utils.toHex(amountOutMin),
-            [getTokenAddress(), data.snipeToken],
-            data.recipient,
-            web3.utils.toHex(Math.round(Date.now() / 1000) + 60) // 1 minute timeout
-        );
-        let rawTransaction = {
-            'from': data.recipient,
-            'gasPrice': web3.utils.toHex(data.gasPrice),
-            'gasLimit': web3.utils.toHex(data.gasLimit),
-            'to': getRouterAddress(),
-            'value': web3.utils.toHex(amountIn),
-            'data': txData.encodeABI(),
-            'nonce': null //set you want buy at where position in blocks
-        };
-
-        // Sign transaction with private key
-        const key = Buffer.from(data.privateKey, 'hex');
-        let transaction = new Tx(rawTransaction, {'common': getNetworkCommon()});
-        transaction.sign(key);
-
-        // Send transaction
-        let result = await getProvider().sendTransaction('0x' + transaction.serialize().toString('hex'));
-        console.log(`Transaction https://bscscan.com/tx/${result.hash} sent`);
-
-        // Verify transaction
-        let receipt = await getProvider().waitForTransaction(result.hash);
-        if (receipt && receipt.blockNumber && receipt.status === 1) { // 0 - failed, 1 - success
-            console.log(chalk.green(`Transaction https://bscscan.com/tx/${result.hash} mined, status success`));
-            tokenBought = true;
-            boughtAmount = amountOutMin;
-        } else if (receipt && receipt.blockNumber && receipt.status === 0) {
-            console.log(chalk.red(`Transaction https://bscscan.com/tx/${result.hash} mined, status failed`));
-        } else {
-            console.log(chalk.yellow(`Transaction https://bscscan.com/tx/${result.hash} not mined`));
-            // TODO: add retry for failed transaction ???
-        }
-    } catch (err) {
-        let error = JSON.parse(JSON.stringify(err));
-        console.log(`Error caused by :
-        {
-        reason : ${error.reason},
-        transactionHash : ${error.transactionHash}
-        message : Please check your account balance, maybe its due because insufficient balance or approve your token manually on pancakeSwap / uniswap
-        }`);
-        console.log(error);
-
-        inquirer.prompt([
-            {
-                type: 'confirm',
-                name: 'runAgain',
-                message: 'Do you want to run again this bot?',
-            },
-        ])
-            .then(answers => {
-                if (answers.runAgain === true) {
-                    console.log('= = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =');
-                    console.log('Run again');
-                    console.log('= = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =');
-                    initialLiquidityDetected = false;
-                    run();
-                } else {
-                    process.exit();
-                }
-
-            });
-
-    }
-}
-
+// Bot entry point
 (
-    async function startUp() {
+    async function snipe() {
         validateInput();
         startupInfo();
-        await run();
-        summaryInfo();
+        await _snipe();
     }
 )();
 
-function summaryInfo() {
-    console.log(chalk.green('=================================================='));
-    console.log(chalk.green('PancakeSwap & Uniswap sniping bot v1.0.1 summary:'));
-    console.log(chalk.green('=================================================='));
-    console.log(chalk.green(`Token bought (y/n) - ${tokenBought}`));
-    console.log(chalk.green(`Amount of token bought - ${boughtAmount}`));
-    console.log(chalk.green('=================================================='));
+function validateInput() {
+    console.log(Chalk.yellow('Validating input from .env config file...'));
+    // Currently, I've removed support for Uniswap due to various bugs;
+    // I'll try to add Uniswap back in the upcoming updates...
+    // if (data.swap === undefined || data.swap === '') {
+    //     console.log(Chalk.red("Please define SWAP variable in .env (pancake or uni)"));
+    //     process.exit(-1);
+    // }
+    if (tokenAddress === undefined || tokenAddress === '') {
+        console.log(Chalk.red("Please define SNIPE_TOKEN variable in .env"));
+        process.exit(-1);
+    }
+    if (snipeBnbAmount === undefined || snipeBnbAmount === '') {
+        console.log(Chalk.red("Please define SNIPE_BNB_AMOUNT variable in .env"));
+        process.exit(-1);
+    }
+    if (address === undefined || address === '') {
+        console.log(Chalk.red("Please define ACCOUNT_ADDRESS variable in .env"));
+        process.exit(-1);
+    }
+    if (privateKey === undefined || privateKey === '') {
+        console.log(Chalk.red("Please define ACCOUNT_PRIVATE_KEY variable in .env"));
+        process.exit(-1);
+    }
+    console.log(Chalk.green('All input was successfully validated!'));
+}
+
+function startupInfo() {
+    console.log(Chalk.green('=================================================='));
+    console.log(Chalk.green('PancakeSwap mempool sniping bot v1.0.2'));
+    console.log(Chalk.green('=================================================='));
+    console.log(Chalk.green(`Swap exchange - PancakeSwap`));
+    console.log(Chalk.green(`Wallet address: ${address}`));
+    console.log(Chalk.green(`Target token (to snipe) - ${tokenAddress}`));
+    console.log(Chalk.green(`Target amount (to buy) - ${snipeBnbAmount}`));
+    console.log(Chalk.green('Proceeding to snipe...'));
+    console.log(Chalk.green('=================================================='));
+}
+
+// Magic stuff
+async function _snipe() {
+    // Init connection
+    const provider = new Web3.providers.WebsocketProvider(WEB_SOCKET_NODE, WEB_SOCKET_OPTIONS);
+    web3 = new Web3(provider);
+    ethers = new Ethers.providers.WebSocketProvider(WEB_SOCKET_NODE);
+
+    // Init properties
+    tokenSymbol = await getTokenSymbol(tokenAddress);
+    tokenDecimals = await getTokenDecimals(tokenAddress);
+
+    // Get BNB balance before buy operation
+    bnbBalanceBeforeBuyAndSell = await getAccountBnbBalance();
+
+    // Prepare buy transaction
+    let rawTx = await prepareBuyTransaction();
+    let signedTx = await signTransaction(rawTx);
+
+    // Start listening for liquidity...
+    await listenForAddLiquidity(buyToken, signedTx);
+}
+
+//region:token_specific_functions
+async function getTokenSymbol() {
+    let tokenInstance = new web3.eth.Contract(tokenAbi, tokenAddress);
+    return await tokenInstance.methods.symbol().call();
+}
+
+async function getTokenDecimals() {
+    let tokenInstance = new web3.eth.Contract(tokenAbi, tokenAddress);
+    return await tokenInstance.methods.decimals().call();
+}
+
+async function getAccountBnbBalance() {
+    return await web3.eth.getBalance(address);
+}
+//endregion:token_specific_functions
+
+//region:account_specific_functions
+async function getAccountNonce() {
+    return await web3.eth.getTransactionCount(address);
+}
+//endregion:account_specific_functions
+
+//region:approve_buy_sell
+async function buyToken(signedTx) {
+    let sentSignedBuyTxn;
+
+    // Trying to buy token until it is succeeded
+    while (true) {
+        try {
+            sentSignedBuyTxn = await sendSignedTransaction(signedTx);
+            break;
+        } catch (error) {
+            console.warn('Can\'t buy token yet:');
+            console.warn(error);
+            await Timer.sleep(1000);
+        }
+    }
+
+    let txMined = await getTransactionReceipt(sentSignedBuyTxn.hash);
+    if (txMined) {
+        console.info('Token bought successfully!');
+        disconnect();
+    } else {
+        console.warn('Buy transaction is not mined...');
+        console.warn('Aborting operation...');
+        process.exit(-1);
+    }
+}
+//endregion:approve_buy_sell
+
+//region:transaction_specific_functions
+async function prepareBuyTransaction() {
+    let bnbAmountInWei = web3.utils.toWei(snipeBnbAmount, 'ether');
+
+    let amountOutMin = '1';
+
+    let router = new web3.eth.Contract(pancakeswapRouterAbi,
+        PANCAKESWAP_ROUTER_ADDRESS,
+        {from: address});
+
+    let txData = router.methods.swapExactETHForTokens(
+        web3.utils.toHex(amountOutMin),
+        [BNB_TOKEN_ADDRESS, tokenAddress],
+        address,
+        web3.utils.toHex(Math.round(Date.now() / 1000) + buyTimeout)
+    );
+
+    let buyNonce = await getAccountNonce();
+
+    let rawTransaction = {
+        'from': address,
+        'gasPrice': web3.utils.toHex(buyGasPrice),
+        'gasLimit': web3.utils.toHex(buyGasLimit),
+        'to': PANCAKESWAP_ROUTER_ADDRESS,
+        'value': web3.utils.toHex(bnbAmountInWei),
+        'data': txData.encodeABI(),
+        'nonce': web3.utils.toHex(buyNonce)
+    };
+
+    console.debug(`Buy transaction prepared successfully`);
+    return rawTransaction;
+}
+
+async function signTransaction(rawTransaction) {
+    let transaction = new Tx(rawTransaction, {'common': WEB_SOCKET_BSC_FORK});
+    transaction.sign(Buffer.from(privateKey, 'hex'));
+    console.debug(`Transaction signed successfully`);
+    return transaction;
+}
+
+async function sendSignedTransaction(transaction) {
+    let result = await ethers.sendTransaction('0x' + transaction.serialize().toString('hex'));
+    console.debug(`Transaction https://bscscan.com/tx/${result.hash} sent`);
+    return result;
+}
+
+async function getTransactionReceipt(transactionHash) {
+    let receipt = await ethers.waitForTransaction(transactionHash);
+    if (receipt && receipt.blockNumber && receipt.status === 1) { // 0 - failed, 1 - success
+        console.info(`Transaction https://bscscan.com/tx/${transactionHash} mined, status success`);
+        return true;
+    } else if (receipt && receipt.blockNumber && receipt.status === 0) {
+        console.warn(`Transaction https://bscscan.com/tx/${transactionHash} mined, status failed`);
+        return false;
+    } else {
+        console.warn(`Transaction https://bscscan.com/tx/${transactionHash} not mined`);
+        return false;
+    }
+}
+//endregion:transaction_specific_functions
+
+async function listenForAddLiquidity(callback, args) {
+    const token = tokenAddress.slice(2).toLowerCase(); // Without 0x
+
+    const subscription = web3.eth.subscribe('pendingTransactions', (error, res) => {
+        if (error) console.error(error);
+    });
+
+    subscription.on('data', (txHash) => {
+        setTimeout(async () => {
+            if (initLiquidityDetected) {
+                return;
+            }
+
+            try {
+                let tx = await web3.eth.getTransaction(txHash);
+
+                if (tx && tx.to && tx.to.toLowerCase() === PANCAKESWAP_ROUTER_ADDRESS) { // 1. pancakeswap router
+                    if (tx.input && tx.input.startsWith('0xf305d719')) {                 // 2. 'addLiquidityETH' function
+                        if (tx.input.toLowerCase().includes(token)) {                    // 3. snipe token address
+
+                            console.info('Detected addLiquidityETH transaction for token')
+                            initLiquidityDetected = true;
+                            callback(args);
+
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Unexpected exception while listening for pending transactions - ' + error);
+            }
+        })
+    });
+}
+
+function disconnect() {
+    // ethers.destroy()
+    // web3.disconnect();
+    // FIXME: for some reason, disconnect function does not seem to correctly closing WS connection;
+    //   For now, the bot needs to be terminated via process.exit(code)
+    console.warn('Shutting down bot...')
+    process.exit(1);
 }
