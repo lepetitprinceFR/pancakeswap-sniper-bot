@@ -87,49 +87,65 @@ let initLiquidityDetected = false;
 // Bot entry point
 (
     async function snipe() {
+        printBanner();
         validateInput();
         startupInfo();
         await _snipe();
     }
 )();
 
+function printBanner() {
+    console.log(Chalk.magenta('    /|    //| |                      // | |                             '));
+    console.log(Chalk.magenta('   //|   // | |     __      ___     //__| |      __       __      ___   '));
+    console.log(Chalk.magenta('  // |  //  | |   //  ) ) ((   ) ) / ___  |   //   ) ) //   ) ) //   ) )'));
+    console.log(Chalk.magenta(' //  | //   | |  //        \ \    //    | |  //   / / //   / / //   / / '));
+    console.log(Chalk.magenta('//   |//    | | //      //   ) ) //     | | //   / / //   / / ((___( (  '));
+    console.log();
+    console.log(Chalk.magenta('presents...'));
+    console.log();
+    console.log();
+}
+
 function validateInput() {
-    console.log(Chalk.yellow('Validating input from .env config file...'));
-    // Currently, I've removed support for Uniswap due to various bugs;
-    // I'll try to add Uniswap back in the upcoming updates...
-    // if (data.swap === undefined || data.swap === '') {
-    //     console.log(Chalk.red("Please define SWAP variable in .env (pancake or uni)"));
-    //     process.exit(-1);
-    // }
+    console.log(Chalk.green('Validating input from .env config file...'));
     if (tokenAddress === undefined || tokenAddress === '') {
+        console.log(Chalk.yellow('Validation failed:'));
         console.log(Chalk.red("Please define SNIPE_TOKEN variable in .env"));
         process.exit(-1);
     }
     if (snipeBnbAmount === undefined || snipeBnbAmount === '') {
+        console.log(Chalk.yellow('Validation failed:'));
         console.log(Chalk.red("Please define SNIPE_BNB_AMOUNT variable in .env"));
         process.exit(-1);
     }
     if (address === undefined || address === '') {
+        console.log(Chalk.yellow('Validation failed:'));
         console.log(Chalk.red("Please define ACCOUNT_ADDRESS variable in .env"));
         process.exit(-1);
     }
     if (privateKey === undefined || privateKey === '') {
-        console.log(Chalk.red("Please define ACCOUNT_PRIVATE_KEY variable in .env"));
+        console.log(Chalk.yellow('Validation failed:'));
+        console.log(Chalk.red("Please define PRIVATE_KEY variable in .env"));
+        process.exit(-1);
+    }
+    if (WEB_SOCKET_NODE === undefined || WEB_SOCKET_NODE === '') {
+        console.log(Chalk.yellow('Validation failed:'));
+        console.log(Chalk.red("Please define WEB_SOCKET_NODE variable in .env"));
         process.exit(-1);
     }
     console.log(Chalk.green('All input was successfully validated!'));
 }
 
 function startupInfo() {
-    console.log(Chalk.green('=================================================='));
-    console.log(Chalk.green('PancakeSwap mempool sniping bot v1.0.3'));
-    console.log(Chalk.green('=================================================='));
-    console.log(Chalk.green(`Swap exchange - PancakeSwap`));
-    console.log(Chalk.green(`Wallet address: ${address}`));
-    console.log(Chalk.green(`Target token (to snipe) - ${tokenAddress}`));
-    console.log(Chalk.green(`Target amount (to buy) - ${snipeBnbAmount}`));
-    console.log(Chalk.green('Proceeding to snipe...'));
-    console.log(Chalk.green('=================================================='));
+    console.log(  Chalk.green('========================================================================'));
+    console.log(  Chalk.green('PancakeSwap mempool sniping bot v1.0.3'));
+    console.log(  Chalk.green('========================================================================'));
+    console.log(  Chalk.green(`Swap exchange - PancakeSwap`));
+    console.log(  Chalk.green(`Wallet address: ${address}`));
+    console.log(  Chalk.green(`Target token (to snipe) - ${tokenAddress}`));
+    console.log(  Chalk.green(`Target amount (to buy) - ${snipeBnbAmount}`));
+    console.log(  Chalk.green('Proceeding to snipe...'));
+    console.log(  Chalk.green('========================================================================'));
 }
 
 // Magic stuff
@@ -186,19 +202,19 @@ async function buyToken(signedTx) {
             sentSignedBuyTxn = await sendSignedTransaction(signedTx);
             break;
         } catch (error) {
-            console.warn('Can\'t buy token yet:');
-            console.warn(error);
+            console.warn(Chalk.yellow('Can\'t buy token yet:'));
+            console.warn(Chalk.yellow(error));
             await Timer.sleep(1000);
         }
     }
 
     let txMined = await getTransactionReceipt(sentSignedBuyTxn.hash);
     if (txMined) {
-        console.info('Token bought successfully!');
+        console.info(Chalk.green('Token bought successfully!'));
         disconnect();
     } else {
-        console.warn('Buy transaction is not mined...');
-        console.warn('Aborting operation...');
+        console.warn(Chalk.yellow('Buy transaction is not mined...'));
+        console.warn(Chalk.yellow('Aborting operation...'));
         process.exit(-1);
     }
 }
@@ -233,43 +249,45 @@ async function prepareBuyTransaction() {
         'nonce': web3.utils.toHex(buyNonce)
     };
 
-    console.debug(`Buy transaction prepared successfully`);
+    console.debug(Chalk.grey(`Buy transaction prepared successfully`));
     return rawTransaction;
 }
 
 async function signTransaction(rawTransaction) {
     let transaction = new Tx(rawTransaction, {'common': WEB_SOCKET_BSC_FORK});
     transaction.sign(Buffer.from(privateKey, 'hex'));
-    console.debug(`Transaction signed successfully`);
+    console.debug(Chalk.grey(`Transaction signed successfully`));
     return transaction;
 }
 
 async function sendSignedTransaction(transaction) {
     let result = await ethers.sendTransaction('0x' + transaction.serialize().toString('hex'));
-    console.debug(`Transaction https://bscscan.com/tx/${result.hash} sent`);
+    console.debug(Chalk.gray(`Transaction https://bscscan.com/tx/${result.hash} sent`));
     return result;
 }
 
 async function getTransactionReceipt(transactionHash) {
     let receipt = await ethers.waitForTransaction(transactionHash);
     if (receipt && receipt.blockNumber && receipt.status === 1) { // 0 - failed, 1 - success
-        console.info(`Transaction https://bscscan.com/tx/${transactionHash} mined, status success`);
+        console.info(Chalk.green(`Transaction https://bscscan.com/tx/${transactionHash} mined, status success`));
         return true;
     } else if (receipt && receipt.blockNumber && receipt.status === 0) {
-        console.warn(`Transaction https://bscscan.com/tx/${transactionHash} mined, status failed`);
+        console.warn(Chalk.yellow(`Transaction https://bscscan.com/tx/${transactionHash} mined, status failed`));
         return false;
     } else {
-        console.warn(`Transaction https://bscscan.com/tx/${transactionHash} not mined`);
+        console.warn(Chalk.yellow(`Transaction https://bscscan.com/tx/${transactionHash} not mined`));
         return false;
     }
 }
 //endregion:transaction_specific_functions
 
 async function listenForAddLiquidity(callback, args) {
+    console.log(Chalk.green('Starting listening for liquidity...'));
+
     const token = tokenAddress.slice(2).toLowerCase(); // Without 0x
 
     const subscription = web3.eth.subscribe('pendingTransactions', (error, res) => {
-        if (error) console.error(error);
+        if (error) console.error(Chalk.red(error));
     });
 
     subscription.on('data', (txHash) => {
@@ -285,7 +303,7 @@ async function listenForAddLiquidity(callback, args) {
                     if (tx.input && tx.input.startsWith('0xf305d719')) {                 // 2. 'addLiquidityETH' function
                         if (tx.input.toLowerCase().includes(token)) {                    // 3. snipe token address
 
-                            console.info('Detected addLiquidityETH transaction for token')
+                            console.info(Chalk.green('Detected addLiquidityETH transaction for token'));
                             initLiquidityDetected = true;
                             callback(args);
 
@@ -293,7 +311,7 @@ async function listenForAddLiquidity(callback, args) {
                     }
                 }
             } catch (error) {
-                console.error('Unexpected exception while listening for pending transactions - ' + error);
+                console.error(Chalk.red('Unexpected exception while listening for pending transactions - ' + error));
             }
         })
     });
@@ -304,6 +322,6 @@ function disconnect() {
     // web3.disconnect();
     // FIXME: for some reason, disconnect function does not seem to correctly closing WS connection;
     //   For now, the bot needs to be terminated via process.exit(code)
-    console.warn('Shutting down bot...')
+    console.warn(Chalk.yellow('Shutting down bot...'));
     process.exit(1);
 }
