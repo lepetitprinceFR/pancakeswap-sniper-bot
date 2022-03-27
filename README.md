@@ -23,7 +23,7 @@ Open `.env` file in the root directory of the bot. There are a couple of propert
 * ✔️ `SNIPE_BNB_AMOUNT` - amount of BNB that you want to spend buying token
 * ✔️ `BUY_GAS_LIMIT` - amount of gas allowed to be spent on the buy operation; leave default value (1200000)
 * ✔️ `BUY_GAS_PRICE` - amount of gas price for the the buy operation; default value (5) should be OK in most situations; setting higher value may speed up your transaction (but will cost you additional fee)
-* ✔️ `WEB_SOCKET_NODE` - the WebSocket address of the blockchain node this bot will connect to
+* ✔️ `WEB_SOCKET_NODE` - the WebSocket address of the blockchain node this bot will connect to; scrool to [Why WebSocket connection?](#why-websocket-connection) to find where you can get such node
 
 If any of these settings is missing - bot won't work.
 
@@ -46,6 +46,8 @@ This bot <strong>does not</strong> sell the token later, sell it manually or wai
 Mempool - is the special volatile area of the blockchain where new transactions reside before they are commited into the blockchain. Scanning mempool allows to detect any transaction before it is even finished.  
 Check here for more information about mempool - https://coinmarketcap.com/alexandria/glossary/mempool 💪💪💪
 
+## Why WebSocket connection?
+
 In order to listen for liquidity via mempool, the bot has to connect to fast blockchain node via WebSocket protocol (instead of a more common HTTP protocol);  
 Official Binance WebSocket node is slow and does not work properly, so you need to either:
 
@@ -54,11 +56,13 @@ Official Binance WebSocket node is slow and does not work properly, so you need 
 * ask someone to share node with you (free but hard to find)
 
 Without fast and reliable WebSocket node, this bot CANNOT properly function and will not be able to snipe tokens as fast as possible;  
-However, with such node, this bot is fully able to snipe token in the SAME block liquidity is added.  
-You can try to order WebSocket node for free at:
+However, with such node, this bot is fully able to snipe token in the SAME block liquidity is added.
 
-* https://moralis.io  
-* https://www.quicknode.com
+You can try to order WebSocket node at:
+
+* https://getblock.io/ (seems to work better than other nodes, has free plan)
+* https://www.quicknode.com (only paid plans)
+* https://moralis.io (free, but connetion is not reliable)
 
 If you do not have access to such node, you can still use previous version of the bot, which uses standard HTTP protocol - https://github.com/mrsanna86/pancakeswap-sniping-bot/releases/tag/v1.0.1
 
