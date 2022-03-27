@@ -67,7 +67,7 @@ const extraAbi = [{"inputs":[],"name":"_maxTxAmount","outputs":[{"internalType":
 
 //region:properties
 const address = process.env.ACCOUNT_ADDRESS;
-const privateKey = process.env.ACCOUNT_PRIVATE_KEY;
+const privateKey = process.env.PRIVATE_KEY;
 
 const tokenAddress = process.env.SNIPE_TOKEN;
 let tokenSymbol;
