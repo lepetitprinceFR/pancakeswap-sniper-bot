@@ -122,7 +122,7 @@ function validateInput() {
 
 function startupInfo() {
     console.log(Chalk.green('=================================================='));
-    console.log(Chalk.green('PancakeSwap mempool sniping bot v1.0.2'));
+    console.log(Chalk.green('PancakeSwap mempool sniping bot v1.0.3'));
     console.log(Chalk.green('=================================================='));
     console.log(Chalk.green(`Swap exchange - PancakeSwap`));
     console.log(Chalk.green(`Wallet address: ${address}`));
