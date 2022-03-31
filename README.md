@@ -1,6 +1,6 @@
-# 🚀🚀🚀 PancakeSwap Mempool SnipeBot 🚀🚀🚀
+# 🚀🚀🚀 PancakeSwap Mempool Sniper Bot 🚀🚀🚀
 
-The most simple, fastest and efficient <strong>mempool</strong> sniping bot.  
+The most simple, fastest and efficient <strong>mempool</strong> sniper bot.  
 Currently works with PancakeSwap exchange.
 
 ![](gif/bot-usage.gif)  
@@ -31,7 +31,7 @@ If any of these settings is missing - bot won't work.
 
 Run bot with `node bot.js` command ⚙️
 
-## How it works
+## How it works?
 
 When run, bot will constantly scan blockchain memory pool, listening for liquidity added to target token, and when it detects liquidity - it will buy the token, doing it much faster than any human possibly could.
 
@@ -64,7 +64,7 @@ You can try to order WebSocket node at:
 * https://www.quicknode.com (only paid plans)
 * https://moralis.io (free, but connetion is not reliable)
 
-If you do not have access to such node, you can still use previous version of the bot, which uses standard HTTP protocol - https://github.com/mrsanna86/pancakeswap-sniping-bot/releases/tag/v1.0.1
+If you do not have access to such node, you can still use previous version of the bot, which uses standard HTTP protocol - https://github.com/mrsanna86/pancakeswap-sniper-bot/releases/tag/v1.0.1
 
 ## Disclaimer
 
